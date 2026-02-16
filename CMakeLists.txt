@@ -27,7 +27,9 @@ CPMAddPackage("gh:TheLartians/Format.cmake@1.8.3")
 # add external chess lib to use as a validator for the tools
 CPMAddPackage(
         NAME disservin
-        GITHUB_REPOSITORY InfiniBrains/chess-library
+        GITHUB_REPOSITORY Disservin/chess-library
+        # if disservin is not working, use my old fork
+#        GITHUB_REPOSITORY InfiniBrains/chess-library
         DOWNLOAD_ONLY YES
         GIT_TAG master
         GIT_SHALLOW TRUE
