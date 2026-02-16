@@ -9,11 +9,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(EMSCRIPTEN)
     add_compile_options(-sUSE_SDL=0)
     add_link_options(-sUSE_SDL=0)
-    # Remove Emscripten's fake SDL headers that conflict with our real SDL2
-    file(GLOB _fakesdl_dirs "$ENV{EMSDK}/upstream/emscripten/cache/sysroot/include/fakesdl*")
-    foreach(_dir ${_fakesdl_dirs})
-        file(REMOVE_RECURSE "${_dir}")
-    endforeach()
 endif()
 
 # set the output directory
