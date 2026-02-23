@@ -9,6 +9,9 @@ cmake-**/
 # node
 **/package-lock.json
 
+# build artifacts
+competition/web/dist/
+
 
 
 
