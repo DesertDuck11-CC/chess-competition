@@ -104,6 +104,13 @@ compile_fork() {
     # Copy the upstream CMakeLists.txt (ensures CHESS_COMPETITION flag is available)
     cp "${PROJECT_DIR}/CMakeLists.txt" "${fork_dir}/CMakeLists.txt"
 
+    # Detect whether the fork's Move() accepts timeLimitMs
+    local has_time_limit="ON"
+    if ! grep -q "timeLimitMs" "${fork_dir}/chess-bot/chess-simulator.h"; then
+        has_time_limit="OFF"
+        log "  Note: fork does not have timeLimitMs parameter"
+    fi
+
     # Configure
     rm -rf "$build_dir"
     mkdir -p "$build_dir"
@@ -114,6 +121,7 @@ compile_fork() {
         -B "$build_dir" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCHESS_COMPETITION=ON \
+        -DCHESS_HAS_TIME_LIMIT="${has_time_limit}" \
         -DCHESS_BOT_NAME="${username}" \
         2>&1 | tail -5; then
         err "  CMake configure failed for '${username}'"

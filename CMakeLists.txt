@@ -9,6 +9,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(CHESS_COMPETITION "Build only the WASM bot library for competition" OFF)
 set(CHESS_BOT_NAME "chesswasm" CACHE STRING "Output name for the WASM bot module")
 
+# Whether the bot's Move() accepts a timeLimitMs parameter (default ON for upstream)
+option(CHESS_HAS_TIME_LIMIT "Bot Move() accepts timeLimitMs parameter" ON)
+if(CHESS_HAS_TIME_LIMIT)
+    add_compile_definitions(CHESS_HAS_TIME_LIMIT)
+endif()
+
 # Disable Emscripten's built-in SDL port so our CPM-fetched SDL2 is used
 if(EMSCRIPTEN AND NOT CHESS_COMPETITION)
     add_compile_options(-sUSE_SDL=0)
