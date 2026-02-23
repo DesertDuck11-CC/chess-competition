@@ -3,6 +3,8 @@ name: Build WASM & Deploy to GitHub Pages
 on:
   push:
     branches: [main, master]
+  schedule:
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -16,6 +18,12 @@ concurrency:
 
 jobs:
   build-and-deploy:
+    if: >-
+      ${{
+        github.repository != 'gameguild-gg/chess-competition'
+        || github.event_name == 'schedule'
+        || github.event_name == 'workflow_dispatch'
+      }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
