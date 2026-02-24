@@ -56,9 +56,9 @@ export const MoveHistory: React.FC<MoveHistoryProps> = ({ moves, currentFen }) =
       <div className="move-history-header">
         <h3>Move History</h3>
         <div className="move-history-summary">
-          <span>White time: {formatTime(totalTimes.white)}</span>
-          <span>Black time: {formatTime(totalTimes.black)}</span>
-          <span>50-move counter: {halfmoveClock}</span>
+          <span>White: {formatTime(totalTimes.white)} </span>
+          <span>Black: {formatTime(totalTimes.black)} </span>
+          <span>50-move: {halfmoveClock}</span>
         </div>
       </div>
       <table className="move-history-table">

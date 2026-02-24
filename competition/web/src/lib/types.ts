@@ -65,7 +65,8 @@ export type GameWinReason =
   | 'draw-repetition'
   | 'draw-insufficient'
   | 'draw-50-move'
-  | 'forfeit';
+  | 'forfeit'
+  | 'time-advantage';
 
 export interface MatchResult {
   winner: BotInfo;

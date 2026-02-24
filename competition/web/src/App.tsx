@@ -87,6 +87,20 @@ function App() {
     return null;
   };
 
+  const getMoveTimeTotals = (moves: GameState['moves']): { white: number; black: number } => {
+    return moves.reduce(
+      (acc, move) => {
+        if (move.color === 'w') {
+          acc.white += move.timeMs;
+        } else {
+          acc.black += move.timeMs;
+        }
+        return acc;
+      },
+      { white: 0, black: 0 },
+    );
+  };
+
   const getGameWinReason = (result: GameResult): GameWinReason => {
     if (!result) return 'draw-50-move';
     if (result.type === 'checkmate') return 'checkmate';
@@ -156,6 +170,30 @@ function App() {
 
         const winnerColor = getWinnerColor(state.result);
         const reason = getGameWinReason(state.result);
+        const isDraw =
+          !!state.result &&
+          (state.result.type === 'stalemate' ||
+            state.result.type === 'draw-repetition' ||
+            state.result.type === 'draw-insufficient' ||
+            state.result.type === 'draw-50-move');
+
+        if (isDraw) {
+          if (gameNumber >= 3) {
+            const totals = getMoveTimeTotals(state.moves);
+            let winner: BotInfo;
+            if (totals.white === totals.black) {
+              winner = game2Winner ?? currentWhiteBot;
+            } else {
+              winner = totals.white < totals.black ? currentWhiteBot : currentBlackBot;
+            }
+            const loser = winner === currentWhiteBot ? currentBlackBot : currentWhiteBot;
+            gameResults.push({ winner, loser, reason: 'time-advantage' });
+            return { winner, loser, gameResults };
+          }
+
+          gameNumber++;
+          continue;
+        }
 
         if (gameNumber === 1) {
           if (winnerColor === 'w') {
