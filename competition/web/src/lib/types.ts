@@ -91,6 +91,14 @@ export interface TournamentRound {
   matches: TournamentMatch[];
 }
 
+/** Viewer data for brackets-viewer (double elimination) */
+export interface BracketsViewerData {
+  stages: unknown[];
+  matches: unknown[];
+  matchGames: unknown[];
+  participants: unknown[];
+}
+
 export interface TournamentState {
   status: TournamentStatus;
   rounds: TournamentRound[];
@@ -98,8 +106,13 @@ export interface TournamentState {
   champion: BotInfo | null;
   runnerUp: BotInfo | null;
   thirdPlace: BotInfo | null;
+  fourthPlace: BotInfo | null;
   headToHead: Record<string, { wins: number; losses: number }>; // Key: "botA-vs-botB" (sorted)
   tournamentTimeLimitMs: number; // Max time per bot per move in tournament
+  /** Brackets-viewer data (when using double elimination) */
+  bracketsViewerData?: BracketsViewerData | null;
+  /** Current match participants for "Now playing" display */
+  currentMatchBots?: { white: BotInfo; black: BotInfo } | null;
 }
 
 // Messages from main thread -> worker

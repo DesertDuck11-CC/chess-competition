@@ -14,7 +14,7 @@ import { GameBoard } from './components/GameBoard';
 import { MoveHistory } from './components/MoveHistory';
 import { GameControls } from './components/GameControls';
 import { TournamentBracket } from './components/TournamentBracket';
-import { buildRound, shuffleBots } from './lib/tournament';
+import { createBracketsTournament, getCurrentMatches, updateMatchResult } from './lib/brackets-tournament';
 import './App.css';
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -262,186 +262,101 @@ function App() {
     setError(null);
     setTournamentRunning(true);
     try {
-      const shuffled = shuffleBots(bots);
-      const totalRounds = Math.ceil(Math.log2(shuffled.length));
-      let rounds = [buildRound(shuffled, 0, totalRounds)];
-      let tournamentState: TournamentState = {
+      const ctx = await createBracketsTournament(bots);
+      const { manager, storage, stageId, participantMap } = ctx;
+
+      const trackHeadToHead = (h2h: Record<string, { wins: number; losses: number }>, winner: BotInfo, loser: BotInfo) => {
+        const names = [winner.username, loser.username].sort();
+        const key = names.join('-vs-');
+        if (!h2h[key]) h2h[key] = { wins: 0, losses: 0 };
+        if (winner.username === names[0]) h2h[key].wins++;
+        else h2h[key].losses++;
+      };
+
+      let headToHead: Record<string, { wins: number; losses: number }> = {};
+      const baseState: TournamentState = {
         status: 'running',
-        rounds,
+        rounds: [],
         currentMatchId: null,
         champion: null,
         runnerUp: null,
         thirdPlace: null,
+        fourthPlace: null,
         headToHead: {},
         tournamentTimeLimitMs: tournamentTimeLimitMs,
       };
 
-      const commitTournament = () => {
-        setTournament({
-          ...tournamentState,
-          rounds: tournamentState.rounds.map((round) => ({
-            ...round,
-            matches: round.matches.map((match) => ({ ...match })),
-          })),
-        });
-      };
+      const refreshViewerData = () =>
+        manager.get.tournamentData(ctx.tournamentId).then((data) => ({
+          stages: data.stage,
+          matches: data.match,
+          matchGames: data.match_game,
+          participants: data.participant,
+        }));
 
-      commitTournament();
+      baseState.bracketsViewerData = await refreshViewerData();
+      setTournament({ ...baseState, bracketsViewerData: baseState.bracketsViewerData });
 
-      const updateMatch = (
-        roundIndex: number,
-        matchIndex: number,
-        patch: Partial<TournamentState['rounds'][number]['matches'][number]>,
-      ) => {
-        const updatedRounds = tournamentState.rounds.map((round, rIndex) => {
-          if (rIndex !== roundIndex) return round;
-          return {
-            ...round,
-            matches: round.matches.map((match, mIndex) => {
-              if (mIndex !== matchIndex) return match;
-              return { ...match, ...patch };
-            }),
-          };
-        });
-        tournamentState = { ...tournamentState, rounds: updatedRounds };
-        commitTournament();
-      };
+      while (true) {
+        const currentMatches = await getCurrentMatches(storage, stageId);
+        const match = currentMatches.find(
+          (m) => m.opponent1?.id != null && m.opponent2?.id != null && participantMap.has(m.opponent1!.id!) && participantMap.has(m.opponent2!.id!),
+        ) as { id: number; opponent1?: { id: number | null }; opponent2?: { id: number | null } } | undefined;
+        if (!match) break;
 
-      // Helper to track head-to-head record between two bots
-      const trackHeadToHead = (winner: BotInfo, loser: BotInfo) => {
-        const names = [winner.username, loser.username].sort();
-        const key = names.join('-vs-');
-        if (!tournamentState.headToHead[key]) {
-          tournamentState.headToHead[key] = { wins: 0, losses: 0 };
-        }
-        // Increment based on who won
-        if (winner.username === names[0]) {
-          tournamentState.headToHead[key].wins++;
-        } else {
-          tournamentState.headToHead[key].losses++;
-        }
-      };
+        const matchId = match.id;
+        const pid1 = match.opponent1!.id!;
+        const pid2 = match.opponent2!.id!;
+        const whiteBot = participantMap.get(pid1)!;
+        const blackBot = participantMap.get(pid2)!;
 
-      let semifinalLosers: BotInfo[] = [];
-      let champion: BotInfo | null = null;
-      let runnerUp: BotInfo | null = null;
-      let thirdPlace: BotInfo | null = null;
+        setTournament((prev) => (prev ? { ...prev, currentMatchBots: { white: whiteBot, black: blackBot } } : prev));
+        await new Promise((r) => setTimeout(r, 0));
 
-      let roundIndex = 0;
-      while (roundIndex < tournamentState.rounds.length) {
-        const currentRound = tournamentState.rounds[roundIndex];
-        const winners: BotInfo[] = [];
+        const result = await playBotMatch(whiteBot, blackBot, tournamentTimeLimitMs);
+        trackHeadToHead(headToHead, result.winner, result.loser);
 
-        for (let matchIndex = 0; matchIndex < currentRound.matches.length; matchIndex += 1) {
-          const match = currentRound.matches[matchIndex];
-          const whiteBot = match.whiteBot;
-          const blackBot = match.blackBot;
+        const winnerScore = result.gameResults.filter((r) => r.winner.username === result.winner.username).length;
+        const loserScore = result.gameResults.length - winnerScore;
 
-          if (whiteBot && !blackBot) {
-            updateMatch(roundIndex, matchIndex, {
-              status: 'bye',
-              winner: whiteBot,
-              loser: null,
-            });
-            winners.push(whiteBot);
-            continue;
-          }
+        await updateMatchResult(
+          manager,
+          matchId,
+          match,
+          ctx.botToParticipantId.get(result.winner.username)!,
+          ctx.botToParticipantId.get(result.loser.username)!,
+          winnerScore,
+          loserScore,
+        );
 
-          if (!whiteBot || !blackBot) {
-            continue;
-          }
-
-          tournamentState = { ...tournamentState, currentMatchId: match.id };
-          commitTournament();
-          updateMatch(roundIndex, matchIndex, { status: 'running' });
-
-          const result = await playBotMatch(whiteBot, blackBot, tournamentTimeLimitMs);
-          updateMatch(roundIndex, matchIndex, {
-            status: 'finished',
-            winner: result.winner,
-            loser: result.loser,
-            gameResults: result.gameResults,
-          });
-
-          // Track head-to-head record
-          trackHeadToHead(result.winner, result.loser);
-
-          winners.push(result.winner);
-
-          if (currentRound.title === 'Semifinals') {
-            semifinalLosers.push(result.loser);
-          }
-
-          if (currentRound.title === 'Final') {
-            champion = result.winner;
-            runnerUp = result.loser;
-          }
-        }
-
-        if (winners.length <= 1) {
-          champion = champion ?? winners[0] ?? null;
-          break;
-        }
-
-        const nextRound = buildRound(shuffleBots(winners), roundIndex + 1, totalRounds);
-        tournamentState = {
-          ...tournamentState,
-          rounds: [...tournamentState.rounds, nextRound],
-        };
-        commitTournament();
-
-        roundIndex += 1;
+        baseState.bracketsViewerData = await refreshViewerData();
+        setTournament((prev) => (prev ? { ...prev, bracketsViewerData: baseState.bracketsViewerData, currentMatchBots: null } : prev));
       }
 
-      if (semifinalLosers.length === 2) {
-        const thirdPlaceRound = {
-          title: 'Third Place',
-          matches: [
-            {
-              id: 'third-place',
-              roundIndex: totalRounds,
-              matchIndex: 0,
-              whiteBot: semifinalLosers[0],
-              blackBot: semifinalLosers[1],              gameResults: [],              status: 'pending' as const,
-              winner: null,
-              loser: null,
-            },
-          ],
-        };
+      const standings = await manager.get.finalStandings(stageId);
+      const idToBot = (id: number) => participantMap.get(id) ?? null;
+      const champion = standings[0] ? idToBot((standings[0] as { id: number }).id) : null;
+      const runnerUp = standings[1] ? idToBot((standings[1] as { id: number }).id) : null;
+      const thirdPlace = standings[2] ? idToBot((standings[2] as { id: number }).id) : null;
+      const fourthPlace = standings[3] ? idToBot((standings[3] as { id: number }).id) : null;
 
-        tournamentState = {
-          ...tournamentState,
-          rounds: [...tournamentState.rounds, thirdPlaceRound],
-        };
-        commitTournament();
-
-        const result = await playBotMatch(semifinalLosers[0], semifinalLosers[1], tournamentTimeLimitMs);
-        thirdPlace = result.winner;
-
-        // Track head-to-head record
-        trackHeadToHead(result.winner, result.loser);
-
-        updateMatch(tournamentState.rounds.length - 1, 0, {
-          status: 'finished',
-          winner: result.winner,
-          loser: result.loser,
-          gameResults: result.gameResults,
-        });
-      }
-
-      tournamentState = {
-        ...tournamentState,
+      baseState.bracketsViewerData = await refreshViewerData();
+      setTournament({
+        ...baseState,
+        bracketsViewerData: baseState.bracketsViewerData,
         status: 'finished',
-        champion: champion ?? null,
-        runnerUp: runnerUp ?? null,
-        thirdPlace: thirdPlace ?? null,
+        champion,
+        runnerUp,
+        thirdPlace,
+        fourthPlace,
+        headToHead,
         currentMatchId: null,
-      };
-      setTournament(tournamentState);
-      setTournamentRunning(false);
+        currentMatchBots: null,
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(`Tournament failed: ${msg}`);
+    } finally {
       setTournamentRunning(false);
     }
   };
@@ -492,11 +407,7 @@ function App() {
 
   const gameActive = gameState.status !== 'idle' || loading;
   const tournamentActive = tournamentRunning || tournament?.status === 'running';
-  const currentMatch = tournament?.currentMatchId
-    ? tournament.rounds
-      .flatMap((round) => round.matches)
-      .find((match) => match.id === tournament.currentMatchId) ?? null
-    : null;
+  const currentMatchBots = tournament?.currentMatchBots ?? null;
 
   // Determine board orientation: if a human is playing black (and white is a bot), flip the board
   const boardOrientation: 'white' | 'black' =
@@ -527,8 +438,8 @@ function App() {
       <div className="tournament-panel">
         <h2>Bot Tournament</h2>
         <p className="tournament-subtitle">
-          Single-elimination, randomized bracket. Best-of-3 series: first to 2 wins
-          advances. Game 3 (if tied): loser of game 2 plays as white.
+          Double-elimination, randomized bracket. Losers drop to loser bracket;
+          champion must lose twice to be eliminated. Best-of-3 series per match.
           Uses the bot time limit above.
         </p>
         <div className="tournament-actions">
@@ -576,9 +487,9 @@ function App() {
           </button>
         </div>
 
-        {currentMatch && (
+        {currentMatchBots && (
           <div className="tournament-status">
-            Now playing: {currentMatch.whiteBot?.username} vs {currentMatch.blackBot?.username}
+            Now playing: {currentMatchBots.white.username} vs {currentMatchBots.black.username}
           </div>
         )}
 
