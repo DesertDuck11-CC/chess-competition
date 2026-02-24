@@ -572,7 +572,7 @@ function App() {
                 Tournament in progress — matches are played automatically.
               </div>
             )}
-            <MoveHistory moves={gameState.moves} />
+            <MoveHistory moves={gameState.moves} currentFen={gameState.fen} />
           </div>
         </div>
       )}
