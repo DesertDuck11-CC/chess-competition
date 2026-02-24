@@ -61,12 +61,29 @@ export type TournamentStatus = 'idle' | 'running' | 'finished';
 
 export type TournamentMatchStatus = 'pending' | 'running' | 'finished' | 'bye';
 
+export type GameWinReason = 
+  | 'checkmate'
+  | 'stalemate'
+  | 'timeout'
+  | 'invalid-move'
+  | 'draw-repetition'
+  | 'draw-insufficient'
+  | 'draw-50-move'
+  | 'forfeit';
+
+export interface MatchResult {
+  winner: BotInfo;
+  loser: BotInfo;
+  reason: GameWinReason;
+}
+
 export interface TournamentMatch {
   id: string;
   roundIndex: number;
   matchIndex: number;
   whiteBot: BotInfo | null;
   blackBot: BotInfo | null;
+  gameResults: MatchResult[]; // Array of game results in this match (for best-of-3)
   winner: BotInfo | null;
   loser: BotInfo | null;
   status: TournamentMatchStatus;
@@ -84,6 +101,8 @@ export interface TournamentState {
   champion: BotInfo | null;
   runnerUp: BotInfo | null;
   thirdPlace: BotInfo | null;
+  headToHead: Record<string, { wins: number; losses: number }>; // Key: "botA-vs-botB" (sorted)
+  tournamentTimeLimitMs: number; // Max time per bot per move in tournament
 }
 
 // Messages from main thread -> worker

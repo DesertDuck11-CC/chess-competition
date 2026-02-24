@@ -14,7 +14,7 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ tournament
         <div key={roundIndex} className="bracket-round">
           <div className="round-title">{round.title}</div>
           {round.matches.map((match) => (
-            <MatchCard key={match.id} match={match} />
+            <MatchCard key={match.id} match={match} headToHead={tournament.headToHead} />
           ))}
         </div>
       ))}
@@ -45,9 +45,10 @@ export const TournamentBracket: React.FC<TournamentBracketProps> = ({ tournament
 
 interface MatchCardProps {
   match: TournamentMatch;
+  headToHead: Record<string, { wins: number; losses: number }>;
 }
 
-const MatchCard: React.FC<MatchCardProps> = ({ match }) => {
+const MatchCard: React.FC<MatchCardProps> = ({ match, headToHead }) => {
   const white = match.whiteBot;
   const black = match.blackBot;
 
@@ -63,17 +64,45 @@ const MatchCard: React.FC<MatchCardProps> = ({ match }) => {
       ? 'loser'
       : '';
 
+  // Get head-to-head record
+  const getH2HRecord = () => {
+    if (!white || !black) return null;
+    const names = [white.username, black.username].sort();
+    const key = names.join('-vs-');
+    const record = headToHead[key];
+    if (!record) return null;
+    
+    // Determine which side's record to show
+    if (white.username === names[0]) {
+      return `${record.wins}-${record.losses}`;
+    } else {
+      return `${record.losses}-${record.wins}`;
+    }
+  };
+
+  const h2hRecord = getH2HRecord();
+
   return (
     <div className={`bracket-match ${match.status}`}>
       <div className={`match-player ${whiteClass}`}>
         <span className="player-name">{white?.username ?? 'BYE'}</span>
+        {h2hRecord && <span className="player-record">{h2hRecord}</span>}
       </div>
       <div className={`match-player ${blackClass}`}>
         <span className="player-name">{black?.username ?? 'BYE'}</span>
       </div>
       {match.status === 'running' && <div className="match-status">Playing</div>}
       {match.status === 'bye' && <div className="match-status">Bye</div>}
-      {match.status === 'finished' && match.winner && (
+      {match.status === 'finished' && match.gameResults && match.gameResults.length > 0 && (
+        <div className="match-results">
+          {match.gameResults.map((gameResult, idx) => (
+            <div key={idx} className="game-result">
+              Winner: {gameResult.winner.username} {gameResult.reason}
+            </div>
+          ))}
+        </div>
+      )}
+      {match.status === 'finished' && (!match.gameResults || match.gameResults.length === 0) && match.winner && (
         <div className="match-status">Winner: {match.winner.username}</div>
       )}
     </div>

@@ -4,6 +4,8 @@ import type {
   PlayerInfo,
   GameState,
   GameResult,
+  GameWinReason,
+  MatchResult,
   TournamentState,
 } from './lib/types';
 import { GameEngine } from './lib/game-engine';
@@ -38,6 +40,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [moveDelay, setMoveDelay] = useState(500);
   const [timeLimitMs, setTimeLimitMs] = useState(10000);
+  const [tournamentTimeLimitMs, setTournamentTimeLimitMs] = useState(10000);
   const [tournament, setTournament] = useState<TournamentState | null>(null);
   const [tournamentRunning, setTournamentRunning] = useState(false);
   const engineRef = useRef<GameEngine | null>(null);
@@ -84,102 +87,136 @@ function App() {
     return null;
   };
 
-  const playBotMatch = async (whiteBot: BotInfo, blackBot: BotInfo) => {
+  const getGameWinReason = (result: GameResult): GameWinReason => {
+    if (!result) return 'draw-50-move';
+    if (result.includes('checkmate')) return 'checkmate';
+    if (result.includes('stalemate')) return 'stalemate';
+    if (result.includes('timeout')) return 'timeout';
+    if (result.includes('invalid')) return 'invalid-move';
+    if (result.includes('forfeit')) return 'forfeit';
+    if (result.includes('repetition')) return 'draw-repetition';
+    if (result.includes('insufficient')) return 'draw-insufficient';
+    if (result.includes('50-move')) return 'draw-50-move';
+    return 'draw-50-move';
+  };
+
+  const playBotMatch = async (
+    whiteBot: BotInfo,
+    blackBot: BotInfo,
+    tournamentTimeLimitMs: number = timeLimitMs,
+  ) => {
     if (!engineRef.current) {
       throw new Error('Game engine not ready');
     }
 
-    let whiteBotWins = 0;
-    let blackBotWins = 0;
-    let gameNumber = 1;
-    let game2Winner: BotInfo | null = null;
-    let game2Loser: BotInfo | null = null;
+    const originalTimeLimit = engineRef.current.getTimeLimit();
+    engineRef.current.setTimeLimit(tournamentTimeLimitMs);
 
-    // Play up to 3 games
-    while (gameNumber <= 3) {
-      // Determine colors for this game
-      let currentWhiteBot: BotInfo;
-      let currentBlackBot: BotInfo;
+    try {
+      let whiteBotWins = 0;
+      let blackBotWins = 0;
+      let gameNumber = 1;
+      let game2Winner: BotInfo | null = null;
+      let game2Loser: BotInfo | null = null;
+      const gameResults: MatchResult[] = [];
 
-      if (gameNumber <= 2) {
-        // Games 1-2: keep same colors (white stays white, black stays black)
-        currentWhiteBot = whiteBot;
-        currentBlackBot = blackBot;
-      } else {
-        // Game 3: loser of game 2 plays as white
-        if (game2Winner === whiteBot) {
-          currentWhiteBot = blackBot;
-          currentBlackBot = whiteBot;
-        } else {
+      // Play up to 3 games
+      while (gameNumber <= 3) {
+        // Determine colors for this game
+        let currentWhiteBot: BotInfo;
+        let currentBlackBot: BotInfo;
+
+        if (gameNumber <= 2) {
+          // Games 1-2: keep same colors (white stays white, black stays black)
           currentWhiteBot = whiteBot;
           currentBlackBot = blackBot;
-        }
-      }
-
-      setWhitePlayer({ type: 'bot', bot: currentWhiteBot });
-      setBlackPlayer({ type: 'bot', bot: currentBlackBot });
-      await engineRef.current.loadPlayers(
-        { type: 'bot', bot: currentWhiteBot },
-        { type: 'bot', bot: currentBlackBot },
-      );
-      await engineRef.current.play();
-
-      const state = engineRef.current.getState();
-      if (state.status !== 'finished') {
-        throw new Error('Match aborted');
-      }
-
-      const winnerColor = getWinnerColor(state.result);
-
-      if (gameNumber === 1) {
-        if (winnerColor === 'w') {
-          whiteBotWins++;
-          if (whiteBotWins === 2) {
-            return { winner: whiteBot, loser: blackBot, result: state.result };
-          }
-        } else if (winnerColor === 'b') {
-          blackBotWins++;
-          if (blackBotWins === 2) {
-            return { winner: blackBot, loser: whiteBot, result: state.result };
-          }
-        }
-      } else if (gameNumber === 2) {
-        if (winnerColor === 'w') {
-          whiteBotWins++;
-          game2Winner = whiteBot;
-          game2Loser = blackBot;
-          if (whiteBotWins === 2) {
-            return { winner: whiteBot, loser: blackBot, result: state.result };
-          }
-        } else if (winnerColor === 'b') {
-          blackBotWins++;
-          game2Winner = blackBot;
-          game2Loser = whiteBot;
-          if (blackBotWins === 2) {
-            return { winner: blackBot, loser: whiteBot, result: state.result };
-          }
-        }
-      } else if (gameNumber === 3) {
-        // Game 3 determines the final winner
-        if (winnerColor === 'w') {
-          return { winner: currentWhiteBot, loser: currentBlackBot, result: state.result };
-        } else if (winnerColor === 'b') {
-          return { winner: currentBlackBot, loser: currentWhiteBot, result: state.result };
         } else {
-          // Draw in game 3 - the winner from game 2 advances
+          // Game 3: loser of game 2 plays as white
           if (game2Winner === whiteBot) {
-            return { winner: whiteBot, loser: blackBot, result: state.result };
+            currentWhiteBot = blackBot;
+            currentBlackBot = whiteBot;
           } else {
-            return { winner: blackBot, loser: whiteBot, result: state.result };
+            currentWhiteBot = whiteBot;
+            currentBlackBot = blackBot;
           }
         }
+
+        setWhitePlayer({ type: 'bot', bot: currentWhiteBot });
+        setBlackPlayer({ type: 'bot', bot: currentBlackBot });
+        await engineRef.current.loadPlayers(
+          { type: 'bot', bot: currentWhiteBot },
+          { type: 'bot', bot: currentBlackBot },
+        );
+        await engineRef.current.play();
+
+        const state = engineRef.current.getState();
+        if (state.status !== 'finished') {
+          throw new Error('Match aborted');
+        }
+
+        const winnerColor = getWinnerColor(state.result);
+        const reason = getGameWinReason(state.result);
+
+        if (gameNumber === 1) {
+          if (winnerColor === 'w') {
+            whiteBotWins++;
+            gameResults.push({ winner: whiteBot, loser: blackBot, reason });
+            if (whiteBotWins === 2) {
+              return { winner: whiteBot, loser: blackBot, gameResults };
+            }
+          } else if (winnerColor === 'b') {
+            blackBotWins++;
+            gameResults.push({ winner: blackBot, loser: whiteBot, reason });
+            if (blackBotWins === 2) {
+              return { winner: blackBot, loser: whiteBot, gameResults };
+            }
+          }
+        } else if (gameNumber === 2) {
+          if (winnerColor === 'w') {
+            whiteBotWins++;
+            game2Winner = whiteBot;
+            game2Loser = blackBot;
+            gameResults.push({ winner: whiteBot, loser: blackBot, reason });
+            if (whiteBotWins === 2) {
+              return { winner: whiteBot, loser: blackBot, gameResults };
+            }
+          } else if (winnerColor === 'b') {
+            blackBotWins++;
+            game2Winner = blackBot;
+            game2Loser = whiteBot;
+            gameResults.push({ winner: blackBot, loser: whiteBot, reason });
+            if (blackBotWins === 2) {
+              return { winner: blackBot, loser: whiteBot, gameResults };
+            }
+          }
+        } else if (gameNumber === 3) {
+          // Game 3 determines the final winner
+          if (winnerColor === 'w') {
+            gameResults.push({ winner: currentWhiteBot, loser: currentBlackBot, reason });
+            return { winner: currentWhiteBot, loser: currentBlackBot, gameResults };
+          } else if (winnerColor === 'b') {
+            gameResults.push({ winner: currentBlackBot, loser: currentWhiteBot, reason });
+            return { winner: currentBlackBot, loser: currentWhiteBot, gameResults };
+          } else {
+            // Draw in game 3 - the winner from game 2 advances
+            gameResults.push({ winner: game2Winner || whiteBot, loser: game2Loser || blackBot, reason });
+            if (game2Winner === whiteBot) {
+              return { winner: whiteBot, loser: blackBot, gameResults };
+            } else {
+              return { winner: blackBot, loser: whiteBot, gameResults };
+            }
+          }
+        }
+
+        gameNumber++;
       }
 
-      gameNumber++;
+      // Fallback (should not reach here)
+      throw new Error('Best-of-3 match completed without winner');
+    } finally {
+      // Restore original time limit
+      engineRef.current.setTimeLimit(originalTimeLimit);
     }
-
-    // Fallback (should not reach here)
-    throw new Error('Best-of-3 match completed without winner');
   };
 
   const handleStartTournament = async () => {
@@ -197,6 +234,8 @@ function App() {
         champion: null,
         runnerUp: null,
         thirdPlace: null,
+        headToHead: {},
+        tournamentTimeLimitMs: tournamentTimeLimitMs,
       };
 
       const commitTournament = () => {
@@ -228,6 +267,21 @@ function App() {
         });
         tournamentState = { ...tournamentState, rounds: updatedRounds };
         commitTournament();
+      };
+
+      // Helper to track head-to-head record between two bots
+      const trackHeadToHead = (winner: BotInfo, loser: BotInfo) => {
+        const names = [winner.username, loser.username].sort();
+        const key = names.join('-vs-');
+        if (!tournamentState.headToHead[key]) {
+          tournamentState.headToHead[key] = { wins: 0, losses: 0 };
+        }
+        // Increment based on who won
+        if (winner.username === names[0]) {
+          tournamentState.headToHead[key].wins++;
+        } else {
+          tournamentState.headToHead[key].losses++;
+        }
       };
 
       let semifinalLosers: BotInfo[] = [];
@@ -263,12 +317,16 @@ function App() {
           commitTournament();
           updateMatch(roundIndex, matchIndex, { status: 'running' });
 
-          const result = await playBotMatch(whiteBot, blackBot);
+          const result = await playBotMatch(whiteBot, blackBot, tournamentTimeLimitMs);
           updateMatch(roundIndex, matchIndex, {
             status: 'finished',
             winner: result.winner,
             loser: result.loser,
+            gameResults: result.gameResults,
           });
+
+          // Track head-to-head record
+          trackHeadToHead(result.winner, result.loser);
 
           winners.push(result.winner);
 
@@ -306,8 +364,7 @@ function App() {
               roundIndex: totalRounds,
               matchIndex: 0,
               whiteBot: semifinalLosers[0],
-              blackBot: semifinalLosers[1],
-              status: 'pending' as const,
+              blackBot: semifinalLosers[1],              gameResults: [],              status: 'pending' as const,
               winner: null,
               loser: null,
             },
@@ -320,13 +377,17 @@ function App() {
         };
         commitTournament();
 
-        const result = await playBotMatch(semifinalLosers[0], semifinalLosers[1]);
+        const result = await playBotMatch(semifinalLosers[0], semifinalLosers[1], tournamentTimeLimitMs);
         thirdPlace = result.winner;
+
+        // Track head-to-head record
+        trackHeadToHead(result.winner, result.loser);
 
         updateMatch(tournamentState.rounds.length - 1, 0, {
           status: 'finished',
           winner: result.winner,
           loser: result.loser,
+          gameResults: result.gameResults,
         });
       }
 
@@ -446,6 +507,20 @@ function App() {
               disabled={tournamentRunning}
             />
             <span className="delay-value">{moveDelay}ms</span>
+          </div>
+          <div className="tournament-controls">
+            <label htmlFor="tournament-time-limit">Bot Time Limit (ms):</label>
+            <input
+              id="tournament-time-limit"
+              type="range"
+              min="1000"
+              max="60000"
+              step="1000"
+              value={tournamentTimeLimitMs}
+              onChange={(e) => setTournamentTimeLimitMs(parseInt(e.target.value, 10))}
+              disabled={tournamentRunning}
+            />
+            <span className="delay-value">{tournamentTimeLimitMs}ms</span>
           </div>
           <button
             className="btn-start"
